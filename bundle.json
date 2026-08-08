@@ -1,0 +1,17 @@
+{
+  "name": "RadioBOSS Song Request Bundle",
+  "version": "1.0.0",
+  "release_date": "2026-08-08",
+  "components": [
+    {
+      "name": "RadioBOSS SongSync Engine",
+      "version": "1.6.0",
+      "path": "SongSync"
+    },
+    {
+      "name": "RadioBOSS Song Request System",
+      "version": "1.5.0",
+      "path": "Web"
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+# Private configuration
+config.php
+
+# Generated SongSync catalogs
+data/main/public/*.json
+data/secondary/public/*.json
+
+# Private lookup and runtime files
+data/main/private/*.json
+data/main/private/*.log
+data/secondary/private/*.json
+data/secondary/private/*.log
+
+# Temporary / backup files
+*.tmp
+*.bak
+*.log
+
+# Editors / operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Desktop.ini

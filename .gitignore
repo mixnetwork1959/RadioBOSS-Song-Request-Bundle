@@ -1,0 +1,30 @@
+# Bundle build output
+dist/
+*.zip
+*.sha256
+
+# SongSync runtime and secrets
+SongSync/config.py
+SongSync/sftp_key
+SongSync/sftp_key.pub
+SongSync/sftp_known_hosts
+SongSync/exports/
+SongSync/songsync.log
+SongSync/songsync-old.log
+SongSync/setup-debug.log
+SongSync/build/
+SongSync/dist/
+SongSync/__pycache__/
+
+# Web runtime and secrets
+Web/config.php
+Web/data/*/public/*.json
+Web/data/*/private/*
+!Web/data/*/private/.htaccess
+!Web/data/*/public/.gitkeep
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,568 @@
+<?php
+declare(strict_types=1);
+
+session_start();
+
+const INSTALLER_VERSION = '1.5.0';
+
+$configFile = __DIR__ . '/config.php';
+
+function h(string $value): string
+{
+    return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function boolValue(mixed $value): bool
+{
+    return in_array((string) $value, ['1', 'true', 'on', 'yes'], true);
+}
+
+function normalizeUrl(string $value): string
+{
+    return trim($value);
+}
+
+function normalizeInt(mixed $value, int $default, int $min, int $max): int
+{
+    $number = filter_var($value, FILTER_VALIDATE_INT);
+
+    if ($number === false) {
+        return $default;
+    }
+
+    return max($min, min($max, (int) $number));
+}
+
+function installerData(): array
+{
+    $defaults = [
+        'main_station_name' => 'Main Station',
+        'secondary_enabled' => '0',
+        'secondary_station_name' => 'Secondary Station',
+        'station_tagline' => 'Your music, your station.',
+        'station_logo_url' => '',
+        'main_player_url' => '',
+        'secondary_player_url' => '',
+        'timezone' => 'Europe/Berlin',
+
+        'main_songs_url' => 'data/main/public/songs.json',
+        'secondary_songs_url' => 'data/secondary/public/songs.json',
+        'main_lookup_file' => "__DIR__ . '/data/main/private/lookup.json'",
+        'secondary_lookup_file' => "__DIR__ . '/data/secondary/private/lookup.json'",
+
+        'main_api_url' => 'http://127.0.0.1:9000/',
+        'main_api_password' => '',
+        'secondary_api_url' => 'http://127.0.0.1:9010/',
+        'secondary_api_password' => '',
+        'api_timeout' => '10',
+
+        'min_search_length' => '2',
+        'search_result_limit' => '25',
+        'allow_messages' => '1',
+        'max_message_length' => '150',
+        'request_minutes' => '15,45',
+        'requests_per_slot' => '1',
+        'show_request_estimate' => '1',
+        'ip_cooldown_seconds' => '60',
+        'track_cooldown_seconds' => '3600',
+        'max_requests_per_hour' => '5',
+        'trust_proxy_headers' => '0',
+    ];
+
+    return array_merge(
+        $defaults,
+        is_array($_SESSION['installer_data'] ?? null)
+            ? $_SESSION['installer_data']
+            : []
+    );
+}
+
+function mergePostData(array $data): array
+{
+    $keys = [
+        'main_station_name',
+        'secondary_station_name',
+        'station_tagline',
+        'station_logo_url',
+        'main_player_url',
+        'secondary_player_url',
+        'timezone',
+        'main_songs_url',
+        'secondary_songs_url',
+        'main_api_url',
+        'main_api_password',
+        'secondary_api_url',
+        'secondary_api_password',
+        'api_timeout',
+        'min_search_length',
+        'search_result_limit',
+        'max_message_length',
+        'request_minutes',
+        'requests_per_slot',
+        'ip_cooldown_seconds',
+        'track_cooldown_seconds',
+        'max_requests_per_hour',
+    ];
+
+    foreach ($keys as $key) {
+        if (array_key_exists($key, $_POST)) {
+            $data[$key] = trim((string) $_POST[$key]);
+        }
+    }
+
+    foreach ([
+        'secondary_enabled',
+        'allow_messages',
+        'show_request_estimate',
+        'trust_proxy_headers',
+    ] as $key) {
+        $data[$key] = isset($_POST[$key]) ? '1' : '0';
+    }
+
+    return $data;
+}
+
+function parseRequestMinutes(string $value): array
+{
+    $minutes = [];
+
+    foreach (preg_split('/[\s,;]+/', $value) ?: [] as $item) {
+        if ($item === '') {
+            continue;
+        }
+
+        $minute = filter_var($item, FILTER_VALIDATE_INT);
+
+        if ($minute === false || $minute < 0 || $minute > 59) {
+            continue;
+        }
+
+        $minutes[] = (int) $minute;
+    }
+
+    $minutes = array_values(array_unique($minutes));
+    sort($minutes);
+
+    return $minutes ?: [15, 45];
+}
+
+function phpValue(string $value): string
+{
+    return var_export($value, true);
+}
+
+function phpBool(bool $value): string
+{
+    return $value ? 'true' : 'false';
+}
+
+function buildConfig(array $d): string
+{
+    $secondaryEnabled = boolValue($d['secondary_enabled']);
+    $requestMinutes = parseRequestMinutes($d['request_minutes']);
+
+    $apiTimeout = normalizeInt($d['api_timeout'], 10, 1, 120);
+    $minSearch = normalizeInt($d['min_search_length'], 2, 1, 20);
+    $resultLimit = normalizeInt($d['search_result_limit'], 25, 1, 200);
+    $maxMessage = normalizeInt($d['max_message_length'], 150, 1, 2000);
+    $requestsPerSlot = normalizeInt($d['requests_per_slot'], 1, 1, 25);
+    $ipCooldown = normalizeInt($d['ip_cooldown_seconds'], 60, 0, 86400);
+    $trackCooldown = normalizeInt($d['track_cooldown_seconds'], 3600, 0, 604800);
+    $maxPerHour = normalizeInt($d['max_requests_per_hour'], 5, 1, 100);
+
+    $minutesCode = '[' . implode(', ', $requestMinutes) . ']';
+
+    return "<?php\n"
+        . "declare(strict_types=1);\n\n"
+        . "/**\n"
+        . " * RadioBOSS Song Request System\n"
+        . " * Generated by install.php v" . INSTALLER_VERSION . "\n"
+        . " *\n"
+        . " * PRIVATE FILE - never publish this file.\n"
+        . " */\n\n"
+        . "define('ENABLE_SECONDARY_STATION', " . phpBool($secondaryEnabled) . ");\n\n"
+        . "\$requestedStation = strtolower(trim((string) (\$_GET['station'] ?? 'main')));\n"
+        . "define(\n"
+        . "    'REQUEST_STATION',\n"
+        . "    ENABLE_SECONDARY_STATION && \$requestedStation === 'rock'\n"
+        . "        ? 'rock'\n"
+        . "        : 'main'\n"
+        . ");\n"
+        . "define('IS_ROCK_REQUEST', REQUEST_STATION === 'rock');\n\n"
+        . "define('MAIN_STATION_NAME', " . phpValue($d['main_station_name']) . ");\n"
+        . "define('SECONDARY_STATION_NAME', " . phpValue($d['secondary_station_name']) . ");\n"
+        . "define('STATION_NAME', IS_ROCK_REQUEST ? SECONDARY_STATION_NAME : MAIN_STATION_NAME);\n"
+        . "define('STATION_TAGLINE', " . phpValue($d['station_tagline']) . ");\n"
+        . "define('STATION_LOGO_URL', " . phpValue(normalizeUrl($d['station_logo_url'])) . ");\n\n"
+        . "define('MAIN_PLAYER_EMBED_URL', " . phpValue(normalizeUrl($d['main_player_url'])) . ");\n"
+        . "define('SECONDARY_PLAYER_EMBED_URL', " . phpValue(normalizeUrl($d['secondary_player_url'])) . ");\n"
+        . "define('PLAYER_EMBED_URL', IS_ROCK_REQUEST ? SECONDARY_PLAYER_EMBED_URL : MAIN_PLAYER_EMBED_URL);\n\n"
+        . "define('MAIN_PUBLIC_SONGS_URL', " . phpValue($d['main_songs_url']) . ");\n"
+        . "define('SECONDARY_PUBLIC_SONGS_URL', " . phpValue($d['secondary_songs_url']) . ");\n"
+        . "define('PUBLIC_SONGS_URL', IS_ROCK_REQUEST ? SECONDARY_PUBLIC_SONGS_URL : MAIN_PUBLIC_SONGS_URL);\n"
+        . "define('MIN_SEARCH_LENGTH', " . $minSearch . ");\n"
+        . "define('SEARCH_RESULT_LIMIT', " . $resultLimit . ");\n\n"
+        . "define(\n"
+        . "    'PRIVATE_LOOKUP_FILE',\n"
+        . "    IS_ROCK_REQUEST\n"
+        . "        ? __DIR__ . '/data/secondary/private/lookup.json'\n"
+        . "        : __DIR__ . '/data/main/private/lookup.json'\n"
+        . ");\n\n"
+        . "define('MAIN_RADIOBOSS_API_URL', " . phpValue(normalizeUrl($d['main_api_url'])) . ");\n"
+        . "define('SECONDARY_RADIOBOSS_API_URL', " . phpValue(normalizeUrl($d['secondary_api_url'])) . ");\n"
+        . "define('RADIOBOSS_API_URL', IS_ROCK_REQUEST ? SECONDARY_RADIOBOSS_API_URL : MAIN_RADIOBOSS_API_URL);\n"
+        . "define('MAIN_RADIOBOSS_API_PASSWORD', " . phpValue($d['main_api_password']) . ");\n"
+        . "define('SECONDARY_RADIOBOSS_API_PASSWORD', " . phpValue($d['secondary_api_password']) . ");\n"
+        . "define('RADIOBOSS_API_PASSWORD', IS_ROCK_REQUEST ? SECONDARY_RADIOBOSS_API_PASSWORD : MAIN_RADIOBOSS_API_PASSWORD);\n"
+        . "define('RADIOBOSS_API_TIMEOUT', " . $apiTimeout . ");\n\n"
+        . "define('ALLOW_MESSAGES', " . phpBool(boolValue($d['allow_messages'])) . ");\n"
+        . "define('MAX_MESSAGE_LENGTH', " . $maxMessage . ");\n\n"
+        . "define('REQUEST_TIME_FORMAT', 'H:i');\n"
+        . "define('REQUEST_TIME_LABEL', 'Requested at');\n"
+        . "define('STATION_TIMEZONE', " . phpValue($d['timezone']) . ");\n"
+        . "define('REQUEST_PLAY_MINUTES', " . $minutesCode . ");\n"
+        . "define('REQUESTS_PER_SLOT', " . $requestsPerSlot . ");\n"
+        . "define('SHOW_REQUEST_ESTIMATE', " . phpBool(boolValue($d['show_request_estimate'])) . ");\n\n"
+        . "define('IP_COOLDOWN_SECONDS', " . $ipCooldown . ");\n"
+        . "define('TRACK_COOLDOWN_SECONDS', " . $trackCooldown . ");\n"
+        . "define('MAX_REQUESTS_PER_HOUR', " . $maxPerHour . ");\n\n"
+        . "define(\n"
+        . "    'REQUEST_STATE_FILE',\n"
+        . "    IS_ROCK_REQUEST\n"
+        . "        ? __DIR__ . '/data/secondary/private/request-state.json'\n"
+        . "        : __DIR__ . '/data/main/private/request-state.json'\n"
+        . ");\n"
+        . "define(\n"
+        . "    'REQUEST_LOG_FILE',\n"
+        . "    IS_ROCK_REQUEST\n"
+        . "        ? __DIR__ . '/data/secondary/private/requests.log'\n"
+        . "        : __DIR__ . '/data/main/private/requests.log'\n"
+        . ");\n\n"
+        . "define('TRUST_PROXY_HEADERS', " . phpBool(boolValue($d['trust_proxy_headers'])) . ");\n";
+}
+
+function ensureDataDirectories(bool $secondaryEnabled): array
+{
+    $messages = [];
+    $stations = ['main'];
+
+    if ($secondaryEnabled) {
+        $stations[] = 'secondary';
+    }
+
+    foreach ($stations as $station) {
+        $public = __DIR__ . '/data/' . $station . '/public';
+        $private = __DIR__ . '/data/' . $station . '/private';
+
+        foreach ([$public, $private] as $directory) {
+            if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+                throw new RuntimeException('Could not create directory: ' . $directory);
+            }
+        }
+
+        $htaccess = $private . '/.htaccess';
+
+        if (!is_file($htaccess)) {
+            file_put_contents(
+                $htaccess,
+                "Require all denied\n"
+                . "<IfModule !mod_authz_core.c>\n"
+                . "    Deny from all\n"
+                . "</IfModule>\n",
+                LOCK_EX
+            );
+        }
+
+        $messages[] = 'Prepared data/' . $station . '/public and private directories.';
+    }
+
+    return $messages;
+}
+
+function testRadioBoss(string $url, string $password, int $timeout): array
+{
+    if (!function_exists('curl_init')) {
+        return [false, 'PHP cURL is not available.'];
+    }
+
+    if ($url === '') {
+        return [false, 'API URL is empty.'];
+    }
+
+    $separator = str_contains($url, '?') ? '&' : '?';
+    $requestUrl = $url . $separator . http_build_query(
+        [
+            'pass' => $password,
+            'action' => 'songrequestlist',
+        ],
+        '',
+        '&',
+        PHP_QUERY_RFC3986
+    );
+
+    $curl = curl_init();
+
+    if ($curl === false) {
+        return [false, 'Could not initialize cURL.'];
+    }
+
+    curl_setopt_array(
+        $curl,
+        [
+            CURLOPT_URL => $requestUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => $timeout,
+            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_HTTPGET => true,
+        ]
+    );
+
+    $response = curl_exec($curl);
+    $error = curl_error($curl);
+    $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+    curl_close($curl);
+
+    if ($response === false) {
+        return [false, $error !== '' ? $error : 'Connection failed.'];
+    }
+
+    if ($status >= 400) {
+        return [false, 'HTTP status ' . $status . '.'];
+    }
+
+    return [true, 'RadioBOSS responded successfully.'];
+}
+
+$requirements = [
+    'PHP 8.0 or newer' => PHP_VERSION_ID >= 80000,
+    'cURL extension' => function_exists('curl_init'),
+    'JSON extension' => function_exists('json_encode'),
+    'Project directory writable' => is_writable(__DIR__),
+];
+
+$step = normalizeInt($_GET['step'] ?? 1, 1, 1, 5);
+$data = installerData();
+$message = '';
+$error = '';
+$testResults = [];
+
+if (is_file($configFile)) {
+    $installed = true;
+} else {
+    $installed = false;
+}
+
+if (!$installed && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $data = mergePostData($data);
+    $_SESSION['installer_data'] = $data;
+
+    $action = (string) ($_POST['action'] ?? 'next');
+
+    if ($action === 'test_api') {
+        $timeout = normalizeInt($data['api_timeout'], 10, 1, 120);
+        $testResults['main'] = testRadioBoss(
+            normalizeUrl($data['main_api_url']),
+            $data['main_api_password'],
+            $timeout
+        );
+
+        if (boolValue($data['secondary_enabled'])) {
+            $testResults['secondary'] = testRadioBoss(
+                normalizeUrl($data['secondary_api_url']),
+                $data['secondary_api_password'],
+                $timeout
+            );
+        }
+    } elseif ($action === 'install') {
+        try {
+            if (trim($data['main_station_name']) === '') {
+                throw new RuntimeException('Main station name is required.');
+            }
+
+            if (trim($data['main_api_url']) === '') {
+                throw new RuntimeException('Main RadioBOSS API URL is required.');
+            }
+
+            if (trim($data['main_api_password']) === '') {
+                throw new RuntimeException('Main RadioBOSS API password is required.');
+            }
+
+            if (
+                boolValue($data['secondary_enabled'])
+                && trim($data['secondary_api_password']) === ''
+            ) {
+                throw new RuntimeException('Secondary RadioBOSS API password is required.');
+            }
+
+            ensureDataDirectories(boolValue($data['secondary_enabled']));
+
+            $config = buildConfig($data);
+
+            if (file_put_contents($configFile, $config, LOCK_EX) === false) {
+                throw new RuntimeException('config.php could not be written.');
+            }
+
+            @chmod($configFile, 0640);
+            unset($_SESSION['installer_data']);
+            $installed = true;
+            $message = 'Installation completed successfully.';
+        } catch (Throwable $exception) {
+            $error = $exception->getMessage();
+        }
+    } else {
+        $step = min(5, $step + 1);
+        header('Location: install.php?step=' . $step);
+        exit;
+    }
+}
+
+function checked(array $data, string $key): string
+{
+    return boolValue($data[$key] ?? '0') ? ' checked' : '';
+}
+
+function field(array $data, string $key): string
+{
+    return h((string) ($data[$key] ?? ''));
+}
+
+?><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RadioBOSS Song Request Setup</title>
+<style>
+:root{color-scheme:dark;--bg:#081329;--panel:#101f3d;--line:#294369;--text:#fff;--muted:#b9c9e8;--accent:#5c8cff;--good:#59d98e;--bad:#ff7e7e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+.wrap{max-width:900px;margin:36px auto;padding:0 18px}.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:28px;box-shadow:0 18px 50px #0005}
+h1{margin-top:0}.muted{color:var(--muted)}.steps{display:flex;gap:8px;flex-wrap:wrap;margin:22px 0}.step{padding:8px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}.step.active{background:var(--accent);color:white;border-color:var(--accent)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.full{grid-column:1/-1}label{display:block;font-weight:650;margin-bottom:6px}input,select{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:#09172f;color:white}
+.check{display:flex;gap:10px;align-items:center}.check input{width:auto}.actions{display:flex;gap:10px;justify-content:space-between;margin-top:24px}.actions-right{display:flex;gap:10px}.btn{display:inline-block;padding:11px 16px;border:0;border-radius:10px;background:var(--accent);color:white;text-decoration:none;font-weight:700;cursor:pointer}.btn.secondary{background:#263b5d}.ok{color:var(--good)}.bad{color:var(--bad)}.notice{padding:12px 14px;border-radius:10px;background:#0a1932;margin:14px 0}.review{width:100%;border-collapse:collapse}.review td{padding:9px;border-bottom:1px solid var(--line);vertical-align:top}.review td:first-child{width:38%;color:var(--muted)}
+code{background:#071126;padding:2px 5px;border-radius:5px}@media(max-width:700px){.grid{grid-template-columns:1fr}.card{padding:20px}.actions{flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+<h1>RadioBOSS Song Request Setup</h1>
+<p class="muted">Setup Wizard v<?= h(INSTALLER_VERSION) ?></p>
+
+<?php if ($installed): ?>
+    <div class="notice ok">
+        <strong><?= h($message !== '' ? $message : 'Song Request is already configured.') ?></strong>
+    </div>
+    <p>The installer is locked because <code>config.php</code> exists.</p>
+    <p>For a fresh installation, delete <code>config.php</code> manually and reopen this page.</p>
+    <p><a class="btn" href="index.php">Open Song Requests</a></p>
+<?php else: ?>
+
+<div class="steps">
+<?php foreach ([1=>'System',2=>'Stations',3=>'RadioBOSS & Data',4=>'Request Rules',5=>'Review'] as $n=>$label): ?>
+<span class="step<?= $step === $n ? ' active' : '' ?>"><?= $n ?>. <?= h($label) ?></span>
+<?php endforeach; ?>
+</div>
+
+<?php if ($error !== ''): ?>
+<div class="notice bad"><?= h($error) ?></div>
+<?php endif; ?>
+
+<form method="post" action="install.php?step=<?= $step ?>">
+<?php if ($step === 1): ?>
+    <h2>System check</h2>
+    <p class="muted">The wizard checks the minimum server requirements before configuration.</p>
+    <table class="review">
+    <?php foreach ($requirements as $label=>$ok): ?>
+        <tr><td><?= h($label) ?></td><td class="<?= $ok ? 'ok' : 'bad' ?>"><?= $ok ? 'OK' : 'Not available' ?></td></tr>
+    <?php endforeach; ?>
+    </table>
+    <?php if (in_array(false, $requirements, true)): ?>
+        <div class="notice bad">Resolve the failed requirements before continuing.</div>
+    <?php endif; ?>
+
+<?php elseif ($step === 2): ?>
+    <h2>Stations</h2>
+    <div class="grid">
+        <div><label>Main station name</label><input name="main_station_name" value="<?= field($data,'main_station_name') ?>" required></div>
+        <div><label>Timezone</label><input name="timezone" value="<?= field($data,'timezone') ?>" required></div>
+        <div class="full"><label>Tagline</label><input name="station_tagline" value="<?= field($data,'station_tagline') ?>"></div>
+        <div class="full"><label>Logo URL (optional)</label><input name="station_logo_url" value="<?= field($data,'station_logo_url') ?>"></div>
+        <div><label>Main player embed URL (optional)</label><input name="main_player_url" value="<?= field($data,'main_player_url') ?>"></div>
+        <div><label>Secondary player embed URL (optional)</label><input name="secondary_player_url" value="<?= field($data,'secondary_player_url') ?>"></div>
+        <div class="full check"><input type="checkbox" id="secondary_enabled" name="secondary_enabled"<?= checked($data,'secondary_enabled') ?>><label for="secondary_enabled">Enable a second station</label></div>
+        <div class="full"><label>Secondary station name</label><input name="secondary_station_name" value="<?= field($data,'secondary_station_name') ?>"></div>
+    </div>
+
+<?php elseif ($step === 3): ?>
+    <h2>RadioBOSS and catalog data</h2>
+    <p class="muted">SongSync is recommended for generating and updating the JSON catalog, but any compatible catalog source can be used.</p>
+    <div class="grid">
+        <div><label>Main songs.json URL</label><input name="main_songs_url" value="<?= field($data,'main_songs_url') ?>" required></div>
+        <div><label>Secondary songs.json URL</label><input name="secondary_songs_url" value="<?= field($data,'secondary_songs_url') ?>"></div>
+        <div><label>Main RadioBOSS API URL</label><input name="main_api_url" value="<?= field($data,'main_api_url') ?>" required></div>
+        <div><label>Main API password</label><input type="password" name="main_api_password" value="<?= field($data,'main_api_password') ?>" autocomplete="new-password" required></div>
+        <div><label>Secondary RadioBOSS API URL</label><input name="secondary_api_url" value="<?= field($data,'secondary_api_url') ?>"></div>
+        <div><label>Secondary API password</label><input type="password" name="secondary_api_password" value="<?= field($data,'secondary_api_password') ?>" autocomplete="new-password"></div>
+        <div><label>API timeout (seconds)</label><input type="number" min="1" max="120" name="api_timeout" value="<?= field($data,'api_timeout') ?>"></div>
+        <div></div>
+    </div>
+    <p class="muted">Private lookup and runtime files are automatically stored below <code>data/main/private</code> and <code>data/secondary/private</code>.</p>
+    <?php foreach ($testResults as $name=>$result): ?>
+        <div class="notice <?= $result[0] ? 'ok' : 'bad' ?>"><?= h(ucfirst($name)) ?>: <?= h($result[1]) ?></div>
+    <?php endforeach; ?>
+    <button class="btn secondary" type="submit" name="action" value="test_api">Test RadioBOSS API</button>
+
+<?php elseif ($step === 4): ?>
+    <h2>Request rules</h2>
+    <div class="grid">
+        <div><label>Minimum search length</label><input type="number" name="min_search_length" value="<?= field($data,'min_search_length') ?>"></div>
+        <div><label>Search result limit</label><input type="number" name="search_result_limit" value="<?= field($data,'search_result_limit') ?>"></div>
+        <div class="full check"><input type="checkbox" id="allow_messages" name="allow_messages"<?= checked($data,'allow_messages') ?>><label for="allow_messages">Allow listener messages</label></div>
+        <div><label>Maximum message length</label><input type="number" name="max_message_length" value="<?= field($data,'max_message_length') ?>"></div>
+        <div><label>Request minutes (comma separated)</label><input name="request_minutes" value="<?= field($data,'request_minutes') ?>"></div>
+        <div><label>Requests per slot</label><input type="number" name="requests_per_slot" value="<?= field($data,'requests_per_slot') ?>"></div>
+        <div class="check"><input type="checkbox" id="show_request_estimate" name="show_request_estimate"<?= checked($data,'show_request_estimate') ?>><label for="show_request_estimate">Show request estimate</label></div>
+        <div><label>IP cooldown (seconds)</label><input type="number" name="ip_cooldown_seconds" value="<?= field($data,'ip_cooldown_seconds') ?>"></div>
+        <div><label>Track cooldown (seconds)</label><input type="number" name="track_cooldown_seconds" value="<?= field($data,'track_cooldown_seconds') ?>"></div>
+        <div><label>Maximum requests per hour</label><input type="number" name="max_requests_per_hour" value="<?= field($data,'max_requests_per_hour') ?>"></div>
+        <div class="full check"><input type="checkbox" id="trust_proxy_headers" name="trust_proxy_headers"<?= checked($data,'trust_proxy_headers') ?>><label for="trust_proxy_headers">Trust proxy client-IP headers (advanced)</label></div>
+    </div>
+
+<?php elseif ($step === 5): ?>
+    <h2>Review</h2>
+    <p class="muted">The wizard will create <code>config.php</code> and prepare the protected data directories.</p>
+    <table class="review">
+        <tr><td>Main station</td><td><?= field($data,'main_station_name') ?></td></tr>
+        <tr><td>Second station</td><td><?= boolValue($data['secondary_enabled']) ? field($data,'secondary_station_name') : 'Disabled' ?></td></tr>
+        <tr><td>Main catalog</td><td><?= field($data,'main_songs_url') ?></td></tr>
+        <tr><td>Main RadioBOSS API</td><td><?= field($data,'main_api_url') ?></td></tr>
+        <?php if (boolValue($data['secondary_enabled'])): ?>
+        <tr><td>Secondary catalog</td><td><?= field($data,'secondary_songs_url') ?></td></tr>
+        <tr><td>Secondary RadioBOSS API</td><td><?= field($data,'secondary_api_url') ?></td></tr>
+        <?php endif; ?>
+        <tr><td>Timezone</td><td><?= field($data,'timezone') ?></td></tr>
+        <tr><td>Request minutes</td><td><?= field($data,'request_minutes') ?></td></tr>
+        <tr><td>IP cooldown</td><td><?= field($data,'ip_cooldown_seconds') ?> seconds</td></tr>
+        <tr><td>Track cooldown</td><td><?= field($data,'track_cooldown_seconds') ?> seconds</td></tr>
+    </table>
+<?php endif; ?>
+
+<div class="actions">
+    <div>
+        <?php if ($step > 1): ?><a class="btn secondary" href="install.php?step=<?= $step-1 ?>">Back</a><?php endif; ?>
+    </div>
+    <div class="actions-right">
+        <?php if ($step < 5): ?>
+            <button class="btn" type="submit" name="action" value="next"<?= $step === 1 && in_array(false,$requirements,true) ? ' disabled' : '' ?>>Continue</button>
+        <?php else: ?>
+            <button class="btn" type="submit" name="action" value="install">Install</button>
+        <?php endif; ?>
+    </div>
+</div>
+</form>
+<?php endif; ?>
+</div>
+</div>
+</body>
+</html>

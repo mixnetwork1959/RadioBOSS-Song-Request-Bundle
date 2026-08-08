@@ -1,0 +1,46 @@
+name: Validate bundle
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate Python and bundle metadata
+        run: |
+          python -m py_compile \
+            SongSync/songsync.py \
+            SongSync/setup_wizard.py \
+            SongSync/songsync_launcher.py \
+            SongSync/setup_launcher.py
+          python -m json.tool bundle.json >/dev/null
+
+      - name: Validate PHP
+        run: find Web -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Validate JavaScript
+        run: node --check Web/assets/app.js
+
+      - name: Check neutral branding
+        run: |
+          if grep -RinE \
+            --exclude-dir=.git \
+            --exclude='*.exe' \
+            'radio[ -]?albena|rocking albena|radio-albena\.com' .; then
+            echo 'Station-specific branding found.'
+            exit 1
+          fi
