@@ -39,6 +39,7 @@ jobs:
         run: |
           if grep -RinE \
             --exclude-dir=.git \
+            --exclude-dir=.github \
             --exclude='*.exe' \
             'radio[ -]?albena|rocking albena|radio-albena\.com' .; then
             echo 'Station-specific branding found.'
