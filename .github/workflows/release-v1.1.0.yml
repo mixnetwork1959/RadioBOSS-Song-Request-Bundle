@@ -1,0 +1,76 @@
+name: Release v1.1.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-v1.1.0.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Build SongSync Windows executables
+        shell: cmd
+        run: echo.| call SongSync\build_windows.bat
+
+      - name: Prepare release packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '1.1.0'
+          $readyRoot = Join-Path $env:RUNNER_TEMP "RadioBOSS-Song-Request-Bundle-v$version-Ready-to-Use"
+          $sourceZip = Join-Path $PWD "RadioBOSS-Song-Request-Bundle-v$version-Complete-Source.zip"
+          $readyZip = Join-Path $PWD "RadioBOSS-Song-Request-Bundle-v$version-Ready-to-Use.zip"
+          $checksums = Join-Path $PWD "RadioBOSS-Song-Request-Bundle-v$version-checksums.txt"
+
+          if (Test-Path $readyRoot) { Remove-Item $readyRoot -Recurse -Force }
+          New-Item -ItemType Directory -Path $readyRoot | Out-Null
+
+          robocopy $PWD $readyRoot /E /XD .git .github .songsync-build-venv build dist /XF *.zip *.exe *.spec | Out-Null
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
+          $global:LASTEXITCODE = 0
+
+          Copy-Item 'SongSync\dist\RadioBOSS-SongSync.exe' (Join-Path $readyRoot 'SongSync\RadioBOSS-SongSync.exe')
+          Copy-Item 'SongSync\dist\RadioBOSS-SongSync-Setup.exe' (Join-Path $readyRoot 'SongSync\RadioBOSS-SongSync-Setup.exe')
+          Copy-Item 'SongSync\dist\RadioBOSS-SongSync-Debug.exe' (Join-Path $readyRoot 'SongSync\RadioBOSS-SongSync-Debug.exe')
+
+          if (Test-Path $readyZip) { Remove-Item $readyZip -Force }
+          Compress-Archive -Path (Join-Path $readyRoot '*') -DestinationPath $readyZip -CompressionLevel Optimal
+
+          if (Test-Path $sourceZip) { Remove-Item $sourceZip -Force }
+          git archive --format=zip --output="$sourceZip" HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'git archive failed' }
+
+          $files = @($readyZip, $sourceZip)
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($file))"
+          }
+          $lines | Set-Content -Path $checksums -Encoding ascii
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release create v1.1.0 `
+            'RadioBOSS-Song-Request-Bundle-v1.1.0-Ready-to-Use.zip' `
+            'RadioBOSS-Song-Request-Bundle-v1.1.0-Complete-Source.zip' `
+            'RadioBOSS-Song-Request-Bundle-v1.1.0-checksums.txt' `
+            --title 'RadioBOSS Song Request Bundle v1.1.0' `
+            --notes-file 'RELEASE-NOTES-v1.1.0.md' `
+            --target $env:GITHUB_SHA
