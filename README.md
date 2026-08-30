@@ -65,7 +65,7 @@ connection.
 | Secondary | `Web/data/secondary/public` | `Web/data/secondary/private` | `index.php?station=rock` |
 
 When the stations run on different computers, install the SongSync folder on
-each computer and run the setup wizard separately. The generated `config.py`
+each computer and run the setup wizard separately. The generated `config.json`
 belongs to that computer and must not be copied between stations unless all
 database and path settings are reviewed.
 
@@ -75,8 +75,8 @@ database and path settings are reviewed.
 
 - Windows 10 or Windows 11
 - RadioBOSS with a SQLite or MySQL/MariaDB music library
-- Windows OpenSSH for automated SSH-key SFTP uploads
 - Network access to the web server
+- No separate Windows OpenSSH installation is required; SongSync 1.8.0 uses bundled AsyncSSH for SFTP
 
 ### Web server
 
@@ -90,6 +90,7 @@ database and path settings are reviewed.
 Never publish or commit:
 
 - `SongSync/config.json`
+- `SongSync/config.json.bak`
 - SSH private keys or passwords
 - `SongSync/sftp_known_hosts`
 - `Web/config.php`
