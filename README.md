@@ -1,6 +1,6 @@
 # RadioBOSS Song Request Bundle
 
-**Bundle version 1.0.0**
+**Bundle version 1.1.0**
 
 Project repository:
 [github.com/mixnetwork1959/RadioBOSS-Song-Request-Bundle](https://github.com/mixnetwork1959/RadioBOSS-Song-Request-Bundle)
@@ -8,7 +8,7 @@ Project repository:
 RadioBOSS Song Request Bundle combines the two components required for a
 complete, self-hosted song request system:
 
-- **RadioBOSS SongSync Engine 1.6.0** runs on the RadioBOSS Windows computer.
+- **RadioBOSS SongSync Engine 1.8.0** runs on the RadioBOSS Windows computer.
 - **RadioBOSS Song Request System 1.5.0** runs on a PHP web server.
 
 The bundle is station-neutral. All station names, URLs, database settings,
@@ -29,7 +29,7 @@ SongSync reads the RadioBOSS database but never changes it.
 
 | Directory | Version | Purpose |
 | --- | ---: | --- |
-| `SongSync` | 1.6.0 | Windows catalog export and optional SFTP upload |
+| `SongSync` | 1.8.0 | Windows catalog export and optional SFTP upload |
 | `Web` | 1.5.0 | PHP request page, request protection and RadioBOSS API connection |
 
 Each component remains independently configurable and keeps its own version.
@@ -89,7 +89,7 @@ database and path settings are reviewed.
 
 Never publish or commit:
 
-- `SongSync/config.py`
+- `SongSync/config.json`
 - SSH private keys or passwords
 - `SongSync/sftp_known_hosts`
 - `Web/config.php`

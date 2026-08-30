@@ -1,6 +1,6 @@
 # ==========================================================
 # RadioBOSS SongSync Engine
-# Version 1.6.0
+# Version 1.7.2
 # songsync.py
 # ==========================================================
 
@@ -11,10 +11,7 @@ import hashlib
 import json
 import os
 import posixpath
-import runpy
-import shutil
 import sqlite3
-import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -22,6 +19,10 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Iterable
+
+from config_store import ConfigError, read_json_config
+from scheduler_export import create_scheduler_payload
+from sftp_host_keys import save_server_host_key, select_known_hosts
 
 try:
     import mysql.connector
@@ -41,7 +42,7 @@ except ImportError:
     raise SystemExit(1)
 
 
-VERSION = "1.6.0"
+VERSION = "1.8.0"
 
 
 def application_dir() -> Path:
@@ -64,7 +65,7 @@ def resolve_local_path(value: str) -> Path:
 
 
 def load_config():
-    config_path = APP_DIR / "config.py"
+    config_path = APP_DIR / "config.json"
     open_setup = "--setup" in sys.argv
 
     if open_setup or not config_path.is_file():
@@ -83,9 +84,9 @@ def load_config():
         raise SystemExit(1)
 
     try:
-        config = runpy.run_path(str(config_path))
-    except Exception as exc:
-        print("ERROR while loading config.py:")
+        config = read_json_config(config_path)
+    except ConfigError as exc:
+        print("ERROR while loading config.json:")
         print(f"{type(exc).__name__}: {exc}")
         raise SystemExit(1) from exc
 
@@ -100,10 +101,24 @@ def load_config():
     missing = [name for name in required if name not in config]
 
     if missing:
-        print("ERROR: Missing setting(s) in config.py:")
+        print("ERROR: Missing setting(s) in config.json:")
         for name in missing:
             print(f"  - {name}")
         raise SystemExit(1)
+
+    sftp_defaults = {
+        "SFTP_PORT": 22,
+        "SFTP_PASSWORD": "",
+        "SFTP_PRIVATE_KEY_FILE": (
+            "sftp_key" if (APP_DIR / "sftp_key").is_file() else ""
+        ),
+        "SFTP_PRIVATE_KEY_PASSPHRASE": "",
+        "SFTP_TIMEOUT": 20,
+        "SFTP_TRUST_ON_FIRST_USE": True,
+        "SFTP_KNOWN_HOSTS_FILE": "sftp_known_hosts",
+    }
+    for name, default in sftp_defaults.items():
+        config.setdefault(name, default)
 
     public_settings = {
         name: value
@@ -131,7 +146,7 @@ def load_config():
         ]
 
         if mysql_missing:
-            print("ERROR: Missing MySQL setting(s) in config.py:")
+            print("ERROR: Missing MySQL setting(s) in config.json:")
             for name in mysql_missing:
                 print(f"  - {name}")
             raise SystemExit(1)
@@ -167,6 +182,7 @@ INFO_FILE = PUBLIC_DIR / "info.json"
 
 LOOKUP_FILE = PRIVATE_DIR / "lookup.json"
 DUPLICATE_LOG_FILE = PRIVATE_DIR / "duplicates.log"
+SCHEDULER_EVENTS_FILE = PRIVATE_DIR / "scheduler-events.json"
 
 
 @dataclass(frozen=True)
@@ -452,7 +468,6 @@ def validate_sftp_config() -> None:
         "SFTP_REMOTE_PRIVATE_DIR",
         "SFTP_TIMEOUT",
         "SFTP_TRUST_ON_FIRST_USE",
-        "SFTP_KNOWN_HOSTS_FILE",
     ]
 
     missing = [name for name in required if not hasattr(CONFIG, name)]
@@ -467,7 +482,6 @@ def validate_sftp_config() -> None:
         "SFTP_USERNAME",
         "SFTP_REMOTE_PUBLIC_DIR",
         "SFTP_REMOTE_PRIVATE_DIR",
-        "SFTP_KNOWN_HOSTS_FILE",
     ]
 
     empty = [
@@ -509,28 +523,26 @@ def remote_join(directory: str, filename: str) -> str:
     return posixpath.join(directory, filename)
 
 
-def known_host_name(host: str, port: int) -> str:
-    return host if port == 22 else f"[{host}]:{port}"
+def configured_sftp_uploads() -> list[tuple[Path, str]]:
+    public_dir = str(CONFIG.SFTP_REMOTE_PUBLIC_DIR)
+    private_dir = str(CONFIG.SFTP_REMOTE_PRIVATE_DIR)
+    uploads = [
+        (SONGS_FILE, remote_join(public_dir, SONGS_FILE.name)),
+        (ARTISTS_FILE, remote_join(public_dir, ARTISTS_FILE.name)),
+        (GENRES_FILE, remote_join(public_dir, GENRES_FILE.name)),
+        (INFO_FILE, remote_join(public_dir, INFO_FILE.name)),
+        (LOOKUP_FILE, remote_join(private_dir, LOOKUP_FILE.name)),
+    ]
 
+    if bool(getattr(CONFIG, "SCHEDULER_EXPORT_ENABLED", False)):
+        uploads.append(
+            (
+                SCHEDULER_EVENTS_FILE,
+                remote_join(private_dir, SCHEDULER_EVENTS_FILE.name),
+            )
+        )
 
-def save_asyncssh_host_key(
-    connection,
-    host: str,
-    port: int,
-    known_hosts_file: Path,
-) -> None:
-    server_key = connection.get_server_host_key()
-    exported_key = server_key.export_public_key("openssh")
-
-    if isinstance(exported_key, bytes):
-        exported_key = exported_key.decode("ascii")
-
-    known_hosts_file.parent.mkdir(parents=True, exist_ok=True)
-    known_hosts_file.write_text(
-        f"{known_host_name(host, port)} {exported_key.strip()}\n",
-        encoding="utf-8",
-        newline="\n",
-    )
+    return uploads
 
 
 async def replace_remote_file(
@@ -569,7 +581,9 @@ async def upload_exports_async() -> None:
     username = str(CONFIG.SFTP_USERNAME).strip()
     password = str(CONFIG.SFTP_PASSWORD).strip()
     timeout = int(CONFIG.SFTP_TIMEOUT)
-    known_hosts_file = resolve_local_path(CONFIG.SFTP_KNOWN_HOSTS_FILE)
+    configured_known_hosts = str(
+        getattr(CONFIG, "SFTP_KNOWN_HOSTS_FILE", "sftp_known_hosts")
+    )
     private_key_file = str(CONFIG.SFTP_PRIVATE_KEY_FILE).strip()
     private_key_passphrase = str(CONFIG.SFTP_PRIVATE_KEY_PASSPHRASE)
 
@@ -588,16 +602,11 @@ async def upload_exports_async() -> None:
         password = password or None
         preferred_auth = "password,keyboard-interactive"
 
-    if known_hosts_file.is_file():
-        known_hosts = str(known_hosts_file)
-        trust_first_connection = False
-    elif CONFIG.SFTP_TRUST_ON_FIRST_USE:
-        known_hosts = None
-        trust_first_connection = True
-    else:
-        raise RuntimeError(
-            "SFTP host key is unknown and trust-on-first-use is disabled."
-        )
+    known_hosts_file, known_hosts, trust_first_connection = select_known_hosts(
+        APP_DIR,
+        configured_known_hosts,
+        bool(CONFIG.SFTP_TRUST_ON_FIRST_USE),
+    )
 
     print()
     print("Connecting to SFTP server...")
@@ -615,7 +624,7 @@ async def upload_exports_async() -> None:
         login_timeout=timeout,
     ) as connection:
         if trust_first_connection:
-            save_asyncssh_host_key(
+            save_server_host_key(
                 connection,
                 host,
                 port,
@@ -637,13 +646,7 @@ async def upload_exports_async() -> None:
                     f"Remote private directory does not exist: {private_dir}"
                 )
 
-            uploads = [
-                (SONGS_FILE, remote_join(public_dir, SONGS_FILE.name)),
-                (ARTISTS_FILE, remote_join(public_dir, ARTISTS_FILE.name)),
-                (GENRES_FILE, remote_join(public_dir, GENRES_FILE.name)),
-                (INFO_FILE, remote_join(public_dir, INFO_FILE.name)),
-                (LOOKUP_FILE, remote_join(private_dir, LOOKUP_FILE.name)),
-            ]
+            uploads = configured_sftp_uploads()
 
             for local_path, remote_path in uploads:
                 if not local_path.is_file():
@@ -661,131 +664,10 @@ async def upload_exports_async() -> None:
     print("SFTP upload completed successfully.")
 
 
-def sftp_batch_quote(value: str | Path) -> str:
-    text = str(value).replace('"', '""')
-    return f'"{text}"'
-
-
-def upload_exports_openssh() -> None:
-    validate_sftp_config()
-
-    sftp_executable = shutil.which("sftp")
-
-    if not sftp_executable:
-        raise RuntimeError(
-            "Windows OpenSSH SFTP was not found. Install the Windows "
-            "OpenSSH Client optional feature or use password-based SFTP."
-        )
-
-    host = str(CONFIG.SFTP_HOST).strip()
-    port = int(CONFIG.SFTP_PORT)
-    username = str(CONFIG.SFTP_USERNAME).strip()
-    private_key_file = str(CONFIG.SFTP_PRIVATE_KEY_FILE).strip()
-    private_key_path = resolve_local_path(private_key_file)
-    known_hosts_file = resolve_local_path(CONFIG.SFTP_KNOWN_HOSTS_FILE)
-
-    if str(CONFIG.SFTP_PRIVATE_KEY_PASSPHRASE):
-        raise RuntimeError(
-            "The Windows OpenSSH batch upload cannot use a key passphrase "
-            "directly. Load the key into ssh-agent or use an unencrypted "
-            "dedicated SongSync key."
-        )
-
-    strict_host_checking = (
-        "accept-new"
-        if CONFIG.SFTP_TRUST_ON_FIRST_USE
-        else "yes"
-    )
-
-    public_dir = str(CONFIG.SFTP_REMOTE_PUBLIC_DIR)
-    private_dir = str(CONFIG.SFTP_REMOTE_PRIVATE_DIR)
-
-    uploads = [
-        (SONGS_FILE, remote_join(public_dir, SONGS_FILE.name)),
-        (ARTISTS_FILE, remote_join(public_dir, ARTISTS_FILE.name)),
-        (GENRES_FILE, remote_join(public_dir, GENRES_FILE.name)),
-        (INFO_FILE, remote_join(public_dir, INFO_FILE.name)),
-        (LOOKUP_FILE, remote_join(private_dir, LOOKUP_FILE.name)),
-    ]
-
-    batch_lines = [
-        f"ls {sftp_batch_quote(public_dir)}",
-        f"ls {sftp_batch_quote(private_dir)}",
-    ]
-
-    for local_path, remote_path in uploads:
-        if not local_path.is_file():
-            raise RuntimeError(
-                f"Local export file is missing: {local_path}"
-            )
-
-        temporary_path = remote_path + ".tmp"
-        batch_lines.extend(
-            [
-                (
-                    f"put {sftp_batch_quote(local_path.resolve())} "
-                    f"{sftp_batch_quote(temporary_path)}"
-                ),
-                f"-rm {sftp_batch_quote(remote_path)}",
-                (
-                    f"rename {sftp_batch_quote(temporary_path)} "
-                    f"{sftp_batch_quote(remote_path)}"
-                ),
-            ]
-        )
-
-    batch_lines.append("quit")
-    batch_input = "\n".join(batch_lines) + "\n"
-
-    command = [
-        sftp_executable,
-        "-q",
-        "-b",
-        "-",
-        "-P",
-        str(port),
-        "-i",
-        str(private_key_path),
-        "-o",
-        "IdentitiesOnly=yes",
-        "-o",
-        f"UserKnownHostsFile={known_hosts_file}",
-        "-o",
-        f"StrictHostKeyChecking={strict_host_checking}",
-        f"{username}@{host}",
-    ]
-
-    print()
-    print("Connecting to SFTP server with Windows OpenSSH...")
-
-    result = subprocess.run(
-        command,
-        input=batch_input,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-
-    if result.returncode != 0:
-        details = (result.stderr or result.stdout).strip()
-        raise RuntimeError(
-            "Windows OpenSSH SFTP upload failed"
-            + (f":\n{details}" if details else ".")
-        )
-
-    print("SFTP upload completed successfully.")
-
-
 def upload_exports_sftp() -> None:
     if not CONFIG.SFTP_ENABLED:
         print()
         print("SFTP upload is disabled.")
-        return
-
-    private_key_file = str(CONFIG.SFTP_PRIVATE_KEY_FILE).strip()
-
-    if os.name == "nt" and private_key_file:
-        upload_exports_openssh()
         return
 
     asyncio.run(upload_exports_async())
@@ -864,6 +746,24 @@ def write_exports(
     atomic_json_write(INFO_FILE, info)
 
 
+def write_scheduler_events_export() -> dict | None:
+    if not bool(getattr(CONFIG, "SCHEDULER_EXPORT_ENABLED", False)):
+        return None
+
+    configured_path = str(
+        getattr(CONFIG, "SCHEDULER_SDL_FILE", "")
+    ).strip()
+    if not configured_path:
+        raise RuntimeError(
+            "SCHEDULER_SDL_FILE is required when scheduler export is enabled."
+        )
+
+    sdl_path = resolve_local_path(configured_path)
+    payload = create_scheduler_payload(sdl_path, VERSION)
+    atomic_json_write(SCHEDULER_EVENTS_FILE, payload)
+    return payload
+
+
 def write_duplicate_log(
     duplicate_groups: dict[tuple[str, str], list[Song]],
 ) -> None:
@@ -895,6 +795,7 @@ def print_report(
     usable_songs: list[Song],
     unique_songs: list[Song],
     duplicate_groups: dict[tuple[str, str], list[Song]],
+    scheduler_payload: dict | None,
 ) -> None:
     missing_filename = sum(1 for song in all_songs if not song.filename)
     missing_metadata = sum(
@@ -946,6 +847,12 @@ def print_report(
     print("Private files:")
     print(f"  {LOOKUP_FILE.resolve()}")
     print(f"  {DUPLICATE_LOG_FILE.resolve()}")
+    if scheduler_payload is not None:
+        print(f"  {SCHEDULER_EVENTS_FILE.resolve()}")
+        print(
+            "  Scheduler playlist events: "
+            f"{int(scheduler_payload.get('event_count', 0))}"
+        )
     print()
     print("Export completed. No RadioBOSS data was changed.")
 
@@ -988,12 +895,14 @@ def main() -> int:
             duplicate_groups,
         )
         write_duplicate_log(duplicate_groups)
+        scheduler_payload = write_scheduler_events_export()
 
         print_report(
             all_songs,
             usable_songs,
             unique_songs,
             duplicate_groups,
+            scheduler_payload,
         )
 
         upload_exports_sftp()

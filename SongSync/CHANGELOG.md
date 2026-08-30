@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.8.0
+
+- Standardized private settings on `config.json`.
+- Made the Setup Wizard replace `config.json` atomically and preserve the
+  previous file as `config.json.bak`.
+- Added one-time import of existing `config.py` values when no JSON config
+  exists.
+- Replaced the Windows OpenSSH private-key branch with bundled AsyncSSH on all
+  operating systems.
+- Made the Setup Wizard and live upload create `sftp_known_hosts`
+  automatically after the first trusted, authenticated connection.
+- Resolved relative key and known-hosts paths against the SongSync executable
+  directory.
+- Added regression tests for JSON replacement, legacy migration and SFTP host
+  key creation.
+- Updated the Windows build to PyInstaller 6.22.2 and added an executable
+  onefile Tkinter smoke test, including support for embedded Tcl/Tk data.
+
+## 1.7.2
+
+- Prevented the Windows OpenSSH `sftp.exe` child process from opening a CMD
+  window during automatic uploads.
+- Reused the same hidden-window process options for live uploads and Setup
+  Wizard connection tests.
+- Added regression tests for Windows and non-Windows subprocess options.
+
+## 1.7.0
+
+- Added an optional local RadioBOSS `.sdl` scheduler export.
+- Added detection for `generate`, `getrandomplaylist`, loaded playlists and
+  direct M3U/M3U8/PLS playlist events.
+- Added path-safe `scheduler-events.json` output without complete local paths.
+- Added optional upload of the scheduler file to the private SFTP directory.
+- Added Setup Wizard controls for enabling the export and selecting the SDL.
+- Added unit tests and GitHub validation for scheduler parsing.
+- Kept the scheduler feature disabled by default for existing installations.
+
 ## 1.6.0
 
 - Added graphical Windows Setup Wizard.

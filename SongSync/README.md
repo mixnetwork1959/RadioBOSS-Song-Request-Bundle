@@ -1,6 +1,6 @@
 # RadioBOSS SongSync Engine
 
-**Version 1.6.0**
+**Version 1.8.0**
 
 RadioBOSS SongSync Engine reads the RadioBOSS music library from its standard SQLite database or from MySQL/MariaDB and generates secure JSON catalog files for the [RadioBOSS Song Request System](https://github.com/mixnetwork1959/radioboss-song-request-system).
 
@@ -13,7 +13,7 @@ It can automatically upload the generated catalog to a web server using SFTP.
 
 ## Setup Wizard
 
-Version 1.6.0 includes a separate Windows setup application:
+Version 1.8.0 includes a separate Windows setup application:
 
 ```text
 RadioBOSS-SongSync-Setup.exe
@@ -21,10 +21,11 @@ RadioBOSS-SongSync-Setup.exe
 
 The setup application is built with no console window. It configures the database, exports and optional SFTP upload.
 
-`RadioBOSS-SongSync.exe` remains the normal console synchronization executable so it can still be used reliably from RadioBOSS events, Task Scheduler and log files.
+`RadioBOSS-SongSync.exe` is the normal synchronization executable. It runs
+without a console window and writes its output to `songsync.log`.
 
 
-## Windows executables in v1.6.0
+## Windows executables in v1.8.0
 
 The Windows build creates three executables:
 
@@ -51,7 +52,9 @@ Graphical configuration wizard.
 - Configures SQLite or MySQL/MariaDB
 - Tests the database connection
 - Configures and tests SFTP
-- Creates the local `config.py`
+- Creates or replaces the local `config.json`
+- Preserves the previous configuration as `config.json.bak`
+- Imports an existing `config.py` once during migration
 
 ### RadioBOSS-SongSync-Debug.exe
 
@@ -64,29 +67,29 @@ It performs the same synchronization but leaves the console visible so error out
 
 Windows users can run SongSync without installing Python or additional packages.
 
-1. Download `RadioBOSS-SongSync-v1.6.0.zip` from the latest GitHub release.
+1. Download `RadioBOSS-SongSync-v1.8.0.zip` from the latest GitHub release.
 2. Extract the ZIP file to a permanent directory, for example:
 
    ```text
    C:\RadioBOSS-SongSync
    ```
 
-3. Start the graphical setup application:
+3. Start the setup application:
 
    ```text
    RadioBOSS-SongSync-Setup.exe
    ```
 
-4. Select SQLite or MySQL/MariaDB, test the database, configure the optional
-   SFTP upload and save the configuration.
-5. Start the normal synchronization application:
+4. Select SQLite or MySQL/MariaDB and enter the optional SFTP settings.
+5. If SSH key authentication is used, place `sftp_key` beside the EXE. The
+   setup application selects it automatically.
+6. Test SFTP and save the configuration.
+
+7. Start SongSync:
 
    ```text
    RadioBOSS-SongSync.exe
    ```
-
-Manual configuration remains available by copying `config.example.py` to
-`config.py` and editing it directly.
 
 The generated catalog files are written to the local `exports` directory. If SFTP is enabled, the files are uploaded automatically after a successful export.
 
@@ -96,7 +99,8 @@ Python is not required for the Windows EXE version.
 
 Never publish or share these files:
 
-- `config.py`
+- `config.json`
+- `config.json.bak`
 - `sftp_key`
 - `sftp_key.pub`
 - `sftp_known_hosts`
@@ -132,11 +136,15 @@ Both projects are required for the complete web-based request system:
 - Creates catalog information and statistics
 - Creates a private RadioBOSS filename lookup
 - Creates a duplicate report
+- Reads a selected local RadioBOSS `.sdl` scheduler file when enabled
+- Detects music blocks without relying on event names or language
+- Creates a private, path-safe scheduler-event export for rotation analytics
 - Writes JSON files atomically
 - Supports automatic SFTP uploads
 - Supports SFTP password authentication
 - Supports SSH private-key authentication
-- Uses Windows OpenSSH automatically for private-key uploads on Windows
+- Uses bundled AsyncSSH for password and private-key uploads on every platform
+- Creates `sftp_known_hosts` automatically after the first trusted connection
 - Verifies the SFTP server identity
 - Keeps database and SFTP credentials private
 - Can be started automatically from the RadioBOSS Scheduler
@@ -188,6 +196,7 @@ The following files contain private information:
 ```text
 exports/private/lookup.json
 exports/private/duplicates.log
+exports/private/scheduler-events.json
 ```
 
 `lookup.json` connects a public track ID to the real RadioBOSS filename.
@@ -204,6 +213,23 @@ Example:
 
 > [!WARNING]
 > `lookup.json` contains local music paths and must never be publicly downloadable.
+
+`scheduler-events.json` is optional. It contains only sanitized playlist-event
+metadata: the event name, schedule, action type and a path-safe preset or
+playlist label. Complete local Windows paths are never written to this file.
+
+Enable it in the Setup Wizard or in `config.json`:
+
+```json
+{
+  "SCHEDULER_EXPORT_ENABLED": true,
+  "SCHEDULER_SDL_FILE": "C:\\path\\to\\RadioBOSS\\Admin.sdl"
+}
+```
+
+SongSync recognizes `generate`, `getrandomplaylist`, loaded M3U/M3U8/PLS files
+and direct playlist-file events. It ignores non-music scheduler actions and
+does not depend on names such as Morning, Night or any particular language.
 
 ## Requirements
 
@@ -240,12 +266,12 @@ Open a command prompt in the project directory and install the required packages
 py -m pip install -r requirements.txt
 ```
 
-On the first start, SongSync copies `config.example.py` to `config.py`.
-Enter the database selection and optional SFTP settings in `config.py`, then
-start SongSync again.
+Start the Setup Wizard with `py setup_wizard.py` or start `py songsync.py` when
+no `config.json` exists. Enter the database selection and optional SFTP
+settings, test the connections and save the configuration.
 
 > [!IMPORTANT]
-> Never upload `config.py` to GitHub. It contains private credentials.
+> Never upload `config.json` to GitHub. It contains private credentials.
 
 For complete setup instructions, see:
 
@@ -256,10 +282,12 @@ For complete setup instructions, see:
 SQLite is the default and recommended option for a standard RadioBOSS
 installation:
 
-```python
-DB_TYPE = "sqlite"
-SQLITE_MODE = "dedicated"
-SQLITE_DATABASE = "auto"
+```json
+{
+  "DB_TYPE": "sqlite",
+  "SQLITE_MODE": "dedicated",
+  "SQLITE_DATABASE": "auto"
+}
 ```
 
 Choose `dedicated` when RadioBOSS stores `tracks.db` inside its profile folder:
@@ -270,8 +298,10 @@ Choose `dedicated` when RadioBOSS stores `tracks.db` inside its profile folder:
 
 Choose `shared` when RadioBOSS uses the common database:
 
-```python
-SQLITE_MODE = "shared"
+```json
+{
+  "SQLITE_MODE": "shared"
+}
 ```
 
 ```text
@@ -285,21 +315,18 @@ SongSync lists them and asks for the required full path in
 
 ## MySQL/MariaDB configuration
 
-Set:
-
-```python
-DB_TYPE = "mysql"
-```
-
 Example:
 
-```python
-DB_HOST = "127.0.0.1"
-DB_PORT = 3306
-DB_NAME = "radioboss"
-DB_USER = "radioboss_readonly"
-DB_PASSWORD = "CHANGE_ME"
-DB_CHARSET = "utf8mb4"
+```json
+{
+  "DB_TYPE": "mysql",
+  "DB_HOST": "127.0.0.1",
+  "DB_PORT": 3306,
+  "DB_NAME": "radioboss",
+  "DB_USER": "radioboss_readonly",
+  "DB_PASSWORD": "CHANGE_ME",
+  "DB_CHARSET": "utf8mb4"
+}
 ```
 
 A dedicated read-only MySQL/MariaDB user is strongly recommended.
@@ -315,18 +342,22 @@ SongSync does not insert, update or delete any database records.
 
 ## Local export configuration
 
-```python
-PUBLIC_EXPORT_DIR = "exports/public"
-PRIVATE_EXPORT_DIR = "exports/private"
+```json
+{
+  "PUBLIC_EXPORT_DIR": "exports/public",
+  "PRIVATE_EXPORT_DIR": "exports/private"
+}
 ```
 
 The directories are created automatically when SongSync runs.
 
 ## Console configuration
 
-```python
-SHOW_EXAMPLES = True
-EXAMPLE_LIMIT = 10
+```json
+{
+  "SHOW_EXAMPLES": true,
+  "EXAMPLE_LIMIT": 10
+}
 ```
 
 When enabled, SongSync displays a small selection of public catalog entries after an export.
@@ -359,32 +390,32 @@ SFTP upload is disabled.
 
 ## Automatic SFTP upload
 
-Enable automatic upload in `config.py`:
+Enable automatic upload in the Setup Wizard or in `config.json`:
 
-```python
-SFTP_ENABLED = True
+```json
+{
+  "SFTP_ENABLED": true
+}
 ```
 
 Basic SFTP settings:
 
-```python
-SFTP_HOST = "your-sftp-server.example"
-SFTP_PORT = 22
-
-SFTP_USERNAME = "CHANGE_ME"
-SFTP_PASSWORD = "CHANGE_ME"
+```json
+{
+  "SFTP_HOST": "your-sftp-server.example",
+  "SFTP_PORT": 22,
+  "SFTP_USERNAME": "CHANGE_ME",
+  "SFTP_PASSWORD": "CHANGE_ME"
+}
 ```
 
 Remote target directories:
 
-```python
-SFTP_REMOTE_PUBLIC_DIR = (
-    "/path/to/songrequest/data/public"
-)
-
-SFTP_REMOTE_PRIVATE_DIR = (
-    "/path/to/songrequest/data/private"
-)
+```json
+{
+  "SFTP_REMOTE_PUBLIC_DIR": "/path/to/songrequest/data/public",
+  "SFTP_REMOTE_PRIVATE_DIR": "/path/to/songrequest/data/private"
+}
 ```
 
 Both remote directories must already exist.
@@ -398,6 +429,10 @@ genres.json
 info.json
 lookup.json
 ```
+
+When scheduler export is enabled, `scheduler-events.json` is also uploaded to
+`SFTP_REMOTE_PRIVATE_DIR`. Radio Music Analytics can read it there without any
+access to the RadioBOSS computer's filesystem.
 
 A successful upload ends with:
 
@@ -413,9 +448,11 @@ SongSync therefore supports SSH private-key authentication.
 
 Example:
 
-```python
-SFTP_PRIVATE_KEY_FILE = "sftp_key"
-SFTP_PRIVATE_KEY_PASSPHRASE = ""
+```json
+{
+  "SFTP_PRIVATE_KEY_FILE": "sftp_key",
+  "SFTP_PRIVATE_KEY_PASSPHRASE": ""
+}
 ```
 
 Leave the passphrase empty when the private key is not encrypted.
@@ -438,9 +475,11 @@ For detailed SFTP and SSH-key instructions, see:
 
 SongSync can trust the SFTP server key during the first successful connection:
 
-```python
-SFTP_TRUST_ON_FIRST_USE = True
-SFTP_KNOWN_HOSTS_FILE = "sftp_known_hosts"
+```json
+{
+  "SFTP_TRUST_ON_FIRST_USE": true,
+  "SFTP_KNOWN_HOSTS_FILE": "sftp_known_hosts"
+}
 ```
 
 The first connection stores the server identity locally.
@@ -489,7 +528,8 @@ The included `.gitignore` prevents private and generated files from being commit
 The following files must remain local:
 
 ```text
-config.py
+config.json
+config.json.bak
 sftp_key
 sftp_key.pub
 sftp_known_hosts
@@ -503,6 +543,8 @@ Before every GitHub commit, verify that these files do not appear in the changes
 ```gitignore
 # Private configuration
 config.py
+config.json
+config.json.bak
 
 # Generated exports
 exports/
@@ -599,11 +641,14 @@ RadioBOSS-SongSync-Engine/
 |   `-- RADIOBOSS_AUTOMATION.md
 |
 |-- .gitignore
-|-- config.example.py
+|-- config.example.json
+|-- config.example.py (legacy migration example)
+|-- config_store.py
 |-- LICENSE
 |-- README.md
 |-- requirements.txt
 |-- run_songsync.bat
+|-- sftp_host_keys.py
 `-- songsync.py
 ```
 
@@ -612,7 +657,7 @@ Private and generated files are not included in the repository.
 ## Current versions
 
 ```text
-SongSync Engine:              1.6.0
+SongSync Engine:              1.8.0
 SQLite support:               Built into Python
 MySQL connector (optional):   9.x
 SFTP library:                 AsyncSSH 2.20 or newer
