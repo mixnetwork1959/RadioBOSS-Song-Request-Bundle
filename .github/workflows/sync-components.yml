@@ -1,0 +1,80 @@
+name: Sync bundle components
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/sync-components.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out bundle
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tested component versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/songsync /tmp/request-web
+          git clone --depth 1 https://github.com/mixnetwork1959/RadioBoss-SongSync-Engine.git /tmp/songsync
+          git -C /tmp/songsync fetch --depth 1 origin 3c1d047f5f6e9d0199551056fe603f83dd50fe98
+          git -C /tmp/songsync checkout --detach 3c1d047f5f6e9d0199551056fe603f83dd50fe98
+
+          git clone --depth 1 https://github.com/mixnetwork1959/Radioboss-Song-Request-System.git /tmp/request-web
+          git -C /tmp/request-web fetch --depth 1 origin d9a259b3159676e807bec4048ca65a276564bb9d
+          git -C /tmp/request-web checkout --detach d9a259b3159676e807bec4048ca65a276564bb9d
+
+      - name: Replace bundled component snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf SongSync Web
+          mkdir SongSync Web
+          cp -a /tmp/songsync/. SongSync/
+          cp -a /tmp/request-web/. Web/
+          rm -rf SongSync/.git SongSync/.github Web/.git Web/.github
+
+      - name: Update bundle metadata
+        shell: python
+        run: |
+          from pathlib import Path
+
+          readme = Path('README.md')
+          text = readme.read_text(encoding='utf-8')
+          text = text.replace('**Bundle version 1.0.0**', '**Bundle version 1.1.0**')
+          text = text.replace('**RadioBOSS SongSync Engine 1.6.0**', '**RadioBOSS SongSync Engine 1.8.0**')
+          text = text.replace('| `SongSync` | 1.6.0 |', '| `SongSync` | 1.8.0 |')
+          text = text.replace('`SongSync/config.py`', '`SongSync/config.json`')
+          readme.write_text(text, encoding='utf-8', newline='\n')
+
+          changelog = Path('CHANGELOG.md')
+          old = changelog.read_text(encoding='utf-8')
+          entry = '''# Changelog\n\n## 1.1.0 - 2026-08-30\n\n- Updated bundled SongSync Engine from 1.6.0 to 1.8.0.\n- Kept Song Request System at 1.5.0.\n- Included SongSync 1.8.0 JSON configuration, SFTP and Setup Wizard fixes.\n- Synced the bundled component snapshots from their tested upstream commits.\n\n'''
+          if '## 1.1.0 - 2026-08-30' not in old:
+              old = old.removeprefix('# Changelog\n\n')
+              changelog.write_text(entry + old, encoding='utf-8', newline='\n')
+
+          release = Path('RELEASE-NOTES-v1.1.0.md')
+          release.write_text('''# RadioBOSS Song Request Bundle v1.1.0\n\nTested component combination:\n\n- RadioBOSS SongSync Engine 1.8.0\n- RadioBOSS Song Request System 1.5.0\n\nThis update replaces the bundled SongSync 1.6.0 snapshot with 1.8.0, including the config.json migration, SFTP host-key handling and Setup Wizard fixes.\n''', encoding='utf-8', newline='\n')
+
+      - name: Commit synchronized bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "Bundle already synchronized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Release RadioBOSS Song Request Bundle v1.1.0"
+          git push origin HEAD:main
