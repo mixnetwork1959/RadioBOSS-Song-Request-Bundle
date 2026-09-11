@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0 - 2026-09-11
+
+- Updated bundled Song Request System from 1.5.0 to 1.6.0.
+- Added hourly artist request protection per station and station clock hour.
+- Kept the existing RadioBOSS request queue, slot and ETA behavior unchanged.
+- Added customer-facing `HELP.html` for installation, configuration and troubleshooting.
+- Updated the Quick Start for SongSync 1.8.0 JSON configuration.
+- Prepared a station-neutral shop package with no station-specific names, URLs or credentials.
+- Kept SongSync Engine at 1.8.0.
+
 ## 1.1.0 - 2026-08-30
 
 - Updated bundled SongSync Engine from 1.6.0 to 1.8.0.
