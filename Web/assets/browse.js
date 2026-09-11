@@ -57,6 +57,7 @@
                 <label>
                     <span>Show</span>
                     <select id="songsPerPage" aria-label="Songs per page">
+                        <option value="10">10</option>
                         <option value="20" selected>20</option>
                         <option value="50">50</option>
                         <option value="100">100</option>
@@ -594,7 +595,7 @@
 
     pageSizeSelect.addEventListener('change', () => {
         const newSize = Number.parseInt(pageSizeSelect.value || '20', 10);
-        pageSize = [20, 50, 100].includes(newSize) ? newSize : 20;
+        pageSize = [10, 20, 50, 100].includes(newSize) ? newSize : 20;
         currentPage = 1;
         renderLibrary();
     });
