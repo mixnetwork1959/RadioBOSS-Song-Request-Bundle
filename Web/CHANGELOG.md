@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.0
+
+- Added hourly artist request protection.
+- Prevents a second request for the same artist within the same station clock hour.
+- Uses the configured station timezone for the hourly boundary.
+- Returns a listener-friendly message with the next hour when the artist may be requested again.
+- Added a request gateway so the existing RadioBOSS queue, request protection and ETA logic remain unchanged.
+- Added `ARTIST_HOURLY_PROTECTION` configuration support; enabled by default.
+
 ## 1.5.0
 
 - Added guided `install.php` web setup wizard.
