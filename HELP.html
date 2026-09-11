@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RadioBOSS Song Request Bundle - Help</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;line-height:1.55;margin:0;background:#f4f6f8;color:#1f2937}
+main{max-width:980px;margin:32px auto;background:#fff;padding:36px 42px;border-radius:14px;box-shadow:0 8px 28px rgba(0,0,0,.08)}
+h1{margin-top:0;font-size:2rem}h2{margin-top:2rem;border-bottom:1px solid #e5e7eb;padding-bottom:.35rem}h3{margin-top:1.4rem}
+code{background:#f1f5f9;padding:.12rem .32rem;border-radius:4px}pre{background:#f8fafc;padding:14px;border-radius:8px;overflow:auto}
+.note{background:#eef6ff;border-left:4px solid #3b82f6;padding:12px 16px;border-radius:6px}.warn{background:#fff7ed;border-left:4px solid #f97316;padding:12px 16px;border-radius:6px}
+table{border-collapse:collapse;width:100%;margin:1rem 0}th,td{border:1px solid #d1d5db;padding:9px;text-align:left}th{background:#f8fafc}
+small{color:#64748b}
+</style>
+</head>
+<body>
+<main>
+<h1>RadioBOSS Song Request Bundle</h1>
+<p><strong>Customer Help - Bundle v1.2.0</strong><br>
+Song Request System v1.6.0 + SongSync Engine v1.8.0</p>
+
+<div class="note"><strong>Station-neutral package:</strong> this bundle contains no station-specific names, URLs, passwords or server paths. Enter your own settings during setup.</div>
+
+<h2>1. What is included?</h2>
+<table>
+<tr><th>Component</th><th>Purpose</th></tr>
+<tr><td>Web</td><td>Public song search and request page, request protection, queue position and estimated play time.</td></tr>
+<tr><td>SongSync</td><td>Reads your RadioBOSS music library, creates the public catalog and private filename lookup, and can upload them by SFTP.</td></tr>
+</table>
+<p>The system can operate with one station or an optional second station. Each station uses its own catalog, request state and RadioBOSS API connection.</p>
+
+<h2>2. Requirements</h2>
+<h3>RadioBOSS computer</h3>
+<ul>
+<li>Windows 10 or Windows 11</li>
+<li>RadioBOSS with a SQLite or MySQL/MariaDB music library</li>
+<li>RadioBOSS Remote Control API enabled</li>
+<li>Network access to your web server</li>
+</ul>
+<h3>Web server</h3>
+<ul>
+<li>PHP 8.0 or newer</li>
+<li>PHP cURL and JSON support</li>
+<li>SFTP access if you want SongSync to upload the catalog automatically</li>
+<li>Network access from the PHP server to the RadioBOSS Remote Control API</li>
+</ul>
+
+<h2>3. Quick installation</h2>
+<ol>
+<li>Upload the contents of the <code>Web</code> folder to the desired directory on your web server.</li>
+<li>Open <code>install.php</code> in your browser.</li>
+<li>Enter your station name, timezone, RadioBOSS API address/password and request settings.</li>
+<li>If you use a second station, enable it in the installer and enter its separate settings.</li>
+<li>On the RadioBOSS computer, run <code>SongSync/RadioBOSS-SongSync-Setup.exe</code>.</li>
+<li>Select the RadioBOSS music database and configure the public/private export targets.</li>
+<li>Configure SFTP if the catalog should be uploaded automatically.</li>
+<li>Run SongSync once and confirm that the web page can see the catalog.</li>
+<li>Make a test request and verify that RadioBOSS receives it.</li>
+</ol>
+<p>For the detailed installation order, also see <code>QUICK-START.md</code>.</p>
+
+<h2>4. SongSync setup</h2>
+<p>SongSync reads your RadioBOSS library but does not modify it. It creates public catalog files for the website and a private lookup file used to translate a listener's selection back to the correct audio file.</p>
+<p>Keep the private lookup directory protected from public web access. If you use SFTP, the setup wizard can store the required connection settings in the local SongSync configuration.</p>
+
+<h2>5. Web request setup</h2>
+<p>The web installer creates <code>config.php</code>. This file contains your own station and API settings and should never be published or committed to a public repository.</p>
+<p>Default request slots are at minute <strong>:15</strong> and <strong>:45</strong>. Queue position and estimated play time remain part of the normal request flow.</p>
+
+<h2>6. Hourly artist repeat protection</h2>
+<p>Artist protection is enabled by default with <code>ARTIST_HOURLY_PROTECTION</code>.</p>
+<p>If a song by an artist has already been accepted as a request during the current station clock hour, another request for the same artist on that station is rejected, even when the listener chooses a different song.</p>
+<p>Example: if an artist is requested at 14:12, another request for that artist is blocked until 15:00. The rule uses the configured station timezone and is applied separately per station.</p>
+<div class="note">The listener receives a clear message explaining that a song by this artist has already been requested this hour and should choose another artist.</div>
+
+<h2>7. Important request protection settings</h2>
+<table>
+<tr><th>Setting</th><th>Purpose</th></tr>
+<tr><td><code>IP_COOLDOWN_SECONDS</code></td><td>Minimum wait before the same listener/IP can submit another request.</td></tr>
+<tr><td><code>TRACK_COOLDOWN_SECONDS</code></td><td>Prevents the same track from being requested again too soon.</td></tr>
+<tr><td><code>MAX_REQUESTS_PER_HOUR</code></td><td>Limits the number of requests per listener/IP per hour.</td></tr>
+<tr><td><code>ARTIST_HOURLY_PROTECTION</code></td><td>Prevents two accepted requests for the same artist within the same station clock hour.</td></tr>
+</table>
+
+<h2>8. One or two stations</h2>
+<p>For two stations, configure each station independently. Do not reuse API passwords, database paths or SongSync configuration files unless they are genuinely identical.</p>
+<p>The main and secondary station have separate public catalogs, private lookup files, request state files and request logs.</p>
+
+<h2>9. Troubleshooting</h2>
+<h3>The song list is empty</h3>
+<ul>
+<li>Run SongSync manually and check that it completes without errors.</li>
+<li>Verify the selected music database.</li>
+<li>Check that <code>songs.json</code> is present in the configured public data directory.</li>
+<li>If SFTP is used, check host, username, authentication and target paths.</li>
+</ul>
+<h3>A request appears on the website but not in RadioBOSS</h3>
+<ul>
+<li>Verify that the RadioBOSS Remote Control API is enabled.</li>
+<li>Check the API address, port and password in the web configuration.</li>
+<li>Confirm that the web server can reach the RadioBOSS computer through the network/firewall.</li>
+<li>Check that the private SongSync lookup file exists and is readable by PHP.</li>
+</ul>
+<h3>A listener cannot request another song by the same artist</h3>
+<p>This is expected when hourly artist protection is enabled. The artist becomes available again at the start of the next station clock hour.</p>
+<h3>The installer opens again</h3>
+<p>Make sure <code>config.php</code> exists and is readable by PHP. After a successful setup, keep the installer lock in place unless you intentionally want to reconfigure the system.</p>
+
+<h2>10. Updating an existing installation</h2>
+<div class="warn"><strong>Before updating:</strong> back up <code>Web/config.php</code>, the private data directories and <code>SongSync/config.json</code>.</div>
+<p>Do not overwrite your live configuration with example files. After an update, review the changelog for new settings and run a manual SongSync export followed by one test request.</p>
+
+<h2>11. Security</h2>
+<ul>
+<li>Never publish API passwords, SFTP passwords or SSH private keys.</li>
+<li>Never expose private <code>lookup.json</code>, request-state or request-log files through the public website.</li>
+<li>Use HTTPS for the public request page.</li>
+<li>Use firewall rules or a VPN/reverse proxy where appropriate when the RadioBOSS API must be reachable from a remote web server.</li>
+</ul>
+
+<h2>12. Support information</h2>
+<p>When requesting support, include the bundle version, Web version, SongSync version, your operating system, PHP version and the exact error message. Do not send passwords, private keys or complete configuration files containing credentials.</p>
+
+<hr>
+<small>RadioBOSS Song Request Bundle v1.2.0 - Customer Help</small>
+</main>
+</body>
+</html>
