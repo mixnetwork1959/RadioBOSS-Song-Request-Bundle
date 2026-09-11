@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * ==========================================================
  * RadioBOSS Song Request System
- * Version 1.5.0
+ * Version 1.6.0
  * Example configuration
  * ==========================================================
  *
@@ -149,6 +149,7 @@ define('SHOW_REQUEST_ESTIMATE', true);
 define('IP_COOLDOWN_SECONDS', 60);
 define('TRACK_COOLDOWN_SECONDS', 3600);
 define('MAX_REQUESTS_PER_HOUR', 5);
+define('ARTIST_HOURLY_PROTECTION', true);
 
 
 /* Private runtime files */
