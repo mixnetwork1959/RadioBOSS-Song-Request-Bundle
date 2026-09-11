@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * ==========================================================
  * RadioBOSS Song Request System
- * Version v1.6.0
+ * Version v1.7.0
  * index.php
  * ==========================================================
  */
@@ -52,7 +52,12 @@ function e(string $value): string
 
     <link
         rel="stylesheet"
-        href="assets/style.css?v=1.5.0"
+        href="assets/style.css?v=1.7.0"
+    >
+
+    <link
+        rel="stylesheet"
+        href="assets/browse.css?v=1.7.0"
     >
 </head>
 
@@ -148,7 +153,8 @@ window.SONG_REQUEST_CONFIG = {
 };
 </script>
 
-<script src="assets/app.js?v=1.5.0" defer></script>
+<script src="assets/app.js?v=1.7.0" defer></script>
+<script src="assets/browse.js?v=1.7.0" defer></script>
 
 </body>
 </html>
