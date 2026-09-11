@@ -1,0 +1,116 @@
+name: Release v1.2.0 Shop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-v1.2.0-shop.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Verify station-neutral source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $matches = & git grep -n -i -E 'radio[ -]?albena|rocking albena|radio-albena\.com' -- ':!.github/**'
+          if ($LASTEXITCODE -eq 0) {
+            $matches | Write-Host
+            throw 'Station-specific Radio Albena branding found outside .github.'
+          }
+          if ($LASTEXITCODE -ne 1) {
+            throw "git grep failed with exit code $LASTEXITCODE"
+          }
+          $global:LASTEXITCODE = 0
+          Write-Host 'Station-neutral source check passed.'
+
+      - name: Build SongSync Windows executables
+        shell: cmd
+        run: echo.| call SongSync\build_windows.bat
+
+      - name: Prepare customer shop package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = '1.2.0'
+          $shopRoot = Join-Path $env:RUNNER_TEMP "RadioBOSS-Song-Request-Bundle-v$version-Shop"
+          $shopZip = Join-Path $PWD "RadioBOSS-Song-Request-Bundle-v$version-Shop.zip"
+          $checksums = Join-Path $PWD "RadioBOSS-Song-Request-Bundle-v$version-checksums.txt"
+
+          if (Test-Path $shopRoot) { Remove-Item $shopRoot -Recurse -Force }
+          New-Item -ItemType Directory -Path $shopRoot | Out-Null
+          New-Item -ItemType Directory -Path (Join-Path $shopRoot 'SongSync') | Out-Null
+
+          foreach ($file in @(
+            'HELP.html',
+            'QUICK-START.md',
+            'README.md',
+            'CHANGELOG.md',
+            'LICENSE',
+            'bundle.json',
+            'RELEASE-NOTES-v1.2.0.md'
+          )) {
+            Copy-Item $file (Join-Path $shopRoot $file)
+          }
+
+          Copy-Item 'docs' (Join-Path $shopRoot 'docs') -Recurse
+
+          robocopy 'Web' (Join-Path $shopRoot 'Web') /E /XF .gitignore | Out-Null
+          if ($LASTEXITCODE -ge 8) { throw "Web robocopy failed with exit code $LASTEXITCODE" }
+          $global:LASTEXITCODE = 0
+
+          foreach ($file in @(
+            'run_songsync.bat',
+            'setup.bat',
+            'config.example.json',
+            'README.md',
+            'CHANGELOG.md',
+            'UPDATE_v1.8.0_DE.md'
+          )) {
+            Copy-Item (Join-Path 'SongSync' $file) (Join-Path $shopRoot 'SongSync' $file)
+          }
+          Copy-Item 'SongSync\docs' (Join-Path $shopRoot 'SongSync\docs') -Recurse
+
+          Copy-Item 'SongSync\dist\RadioBOSS-SongSync.exe' (Join-Path $shopRoot 'SongSync\RadioBOSS-SongSync.exe')
+          Copy-Item 'SongSync\dist\RadioBOSS-SongSync-Setup.exe' (Join-Path $shopRoot 'SongSync\RadioBOSS-SongSync-Setup.exe')
+          Copy-Item 'SongSync\dist\RadioBOSS-SongSync-Debug.exe' (Join-Path $shopRoot 'SongSync\RadioBOSS-SongSync-Debug.exe')
+
+          $shopMatches = Get-ChildItem $shopRoot -Recurse -File |
+            Where-Object { $_.Extension -notin @('.exe', '.png', '.jpg', '.jpeg', '.gif', '.ico') } |
+            Select-String -Pattern 'radio[ -]?albena|rocking albena|radio-albena\.com' -CaseSensitive:$false
+          if ($shopMatches) {
+            $shopMatches | ForEach-Object { Write-Host $_.Path ':' $_.LineNumber ':' $_.Line }
+            throw 'Station-specific Radio Albena branding found in customer package.'
+          }
+
+          if (Test-Path $shopZip) { Remove-Item $shopZip -Force }
+          Compress-Archive -Path (Join-Path $shopRoot '*') -DestinationPath $shopZip -CompressionLevel Optimal
+
+          $hash = (Get-FileHash -Algorithm SHA256 $shopZip).Hash.ToLowerInvariant()
+          "$hash  $([IO.Path]::GetFileName($shopZip))" | Set-Content -Path $checksums -Encoding ascii
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release create v1.2.0 `
+            'RadioBOSS-Song-Request-Bundle-v1.2.0-Shop.zip' `
+            'RadioBOSS-Song-Request-Bundle-v1.2.0-checksums.txt' `
+            --title 'RadioBOSS Song Request Bundle v1.2.0 - Shop' `
+            --notes-file 'RELEASE-NOTES-v1.2.0.md' `
+            --target $env:GITHUB_SHA
