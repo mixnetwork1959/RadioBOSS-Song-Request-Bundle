@@ -1,18 +1,22 @@
 # RadioBOSS Song Request Bundle
 
-**Bundle version 1.1.0**
-
-Project repository:
-[github.com/mixnetwork1959/RadioBOSS-Song-Request-Bundle](https://github.com/mixnetwork1959/RadioBOSS-Song-Request-Bundle)
+**Bundle version 1.2.0**
 
 RadioBOSS Song Request Bundle combines the two components required for a
 complete, self-hosted song request system:
 
 - **RadioBOSS SongSync Engine 1.8.0** runs on the RadioBOSS Windows computer.
-- **RadioBOSS Song Request System 1.5.0** runs on a PHP web server.
+- **RadioBOSS Song Request System 1.6.0** runs on a PHP web server.
 
-The bundle is station-neutral. All station names, URLs, database settings,
-RadioBOSS API credentials and server paths are entered during setup.
+The bundle is station-neutral. No station names, URLs, database settings,
+RadioBOSS API credentials or server paths are preconfigured. Customers enter
+their own settings during setup.
+
+## Customer help
+
+For the customer-friendly installation and troubleshooting guide, open
+`HELP.html` in a browser. For the compact technical installation order, see
+`QUICK-START.md`.
 
 ## How it works
 
@@ -30,7 +34,7 @@ SongSync reads the RadioBOSS database but never changes it.
 | Directory | Version | Purpose |
 | --- | ---: | --- |
 | `SongSync` | 1.8.0 | Windows catalog export and optional SFTP upload |
-| `Web` | 1.5.0 | PHP request page, request protection and RadioBOSS API connection |
+| `Web` | 1.6.0 | PHP request page, request protection, hourly artist protection and RadioBOSS API connection |
 
 Each component remains independently configurable and keeps its own version.
 The bundle version only describes this tested combination.
@@ -42,16 +46,20 @@ The bundle does not add a third installer. Use the two component setup tools:
 1. Open `Web/install.php` in a browser after uploading the Web directory.
 2. Run `SongSync/RadioBOSS-SongSync-Setup.exe` on the RadioBOSS computer.
 
-For the complete installation order, see [QUICK-START.md](QUICK-START.md).
+## Hourly artist protection
 
-For SSH-key authentication, see
-[docs/SFTP-SSH-KEY-SETUP.md](docs/SFTP-SSH-KEY-SETUP.md).
+Web 1.6.0 prevents a second accepted request for the same artist within the
+same station clock hour. The rule is station-specific, uses the configured
+station timezone and is enabled by default with `ARTIST_HOURLY_PROTECTION`.
+A listener receives a clear message when the artist has already been requested
+in the current hour.
 
 ## Release ZIP and source code
 
-The downloadable bundle release contains the three ready-to-run SongSync
-Windows executables. A source checkout does not store generated EXE files;
-developers can create them with `SongSync/build_windows.bat`.
+The downloadable Ready-to-Use bundle contains the three SongSync Windows
+executables together with the Web application, setup documentation and
+`HELP.html`. A source checkout does not store generated EXE files; developers
+can create them with `SongSync/build_windows.bat`.
 
 ## One or two stations
 
