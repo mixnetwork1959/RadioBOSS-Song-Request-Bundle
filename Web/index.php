@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * ==========================================================
  * RadioBOSS Song Request System
- * Version v1.5.0
+ * Version v1.6.0
  * index.php
  * ==========================================================
  */
@@ -130,7 +130,7 @@ window.SONG_REQUEST_CONFIG = {
         JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
     ) ?>,
 
-    requestEndpoint: 'request.php?station=<?= IS_ROCK_REQUEST ? 'rock' : 'main' ?>',
+    requestEndpoint: 'request-gateway.php?station=<?= IS_ROCK_REQUEST ? 'rock' : 'main' ?>',
 
     stationKey: <?= json_encode(
         IS_ROCK_REQUEST ? 'secondary' : 'main',
