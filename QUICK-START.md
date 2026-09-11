@@ -1,7 +1,8 @@
 # Quick Start
 
-This guide installs RadioBOSS Song Request Bundle 1.0.0 for one station. A
-second station is added in the final section.
+This guide installs RadioBOSS Song Request Bundle 1.2.0 for one station. A
+second station is added in the final section. For a customer-friendly overview
+and troubleshooting guide, open `HELP.html` in a browser.
 
 ## 1. Prepare RadioBOSS
 
@@ -23,7 +24,7 @@ the exposed API with appropriate firewall rules.
    https://your-site.example/songrequest/install.php
    ```
 
-3. Complete the five setup steps.
+3. Complete the setup wizard.
 4. Enter the public catalog URL:
 
    ```text
@@ -31,8 +32,10 @@ the exposed API with appropriate firewall rules.
    ```
 
 5. Enter the RadioBOSS API URL and password.
-6. Use the API test in the wizard.
-7. Finish the installation and open `index.php`.
+6. Set the correct station timezone. The hourly artist protection uses this
+   timezone to determine when a new clock hour starts.
+7. Use the API test in the wizard.
+8. Finish the installation and open `index.php`.
 
 The installer creates `config.php` and prepares:
 
@@ -43,6 +46,10 @@ data/main/private
 
 Once `config.php` exists, the installer locks itself and will not overwrite the
 configuration.
+
+Web 1.6.0 enables hourly artist request protection by default. A second request
+for the same artist on the same station is rejected until the next station
+clock hour, even when a different song is selected.
 
 ## 3. Install SongSync on Windows
 
@@ -67,8 +74,9 @@ configuration.
 5. Keep the default local export directories unless another location is
    required.
 
-The setup wizard writes `config.py` beside the executable. This file contains
-private settings and must not be shared.
+The setup wizard writes `config.json` beside the executable. This file contains
+private settings and must not be shared. If an older `config.py` exists,
+SongSync 1.8.0 can migrate its settings when no JSON configuration is present.
 
 ## 4. Configure the SFTP upload
 
@@ -155,4 +163,5 @@ Do not schedule the setup executable.
    index.php?station=rock
    ```
 
-Each SongSync installation keeps its own local `config.py`.
+Each SongSync installation keeps its own local `config.json`.
+The hourly artist protection is applied separately per station.
